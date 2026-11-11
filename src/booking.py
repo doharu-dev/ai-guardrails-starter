@@ -18,4 +18,4 @@ def overlaps(a: Booking, b: Booking) -> bool:
     終了を含まないので、10:00〜11:00 と 11:00〜12:00 のように
     片方の終了ともう片方の開始がちょうど同じなら、重ならない。
     """
-    return a.start < b.end and b.start < a.end
+    return a.start <= b.end and b.start <= a.end
