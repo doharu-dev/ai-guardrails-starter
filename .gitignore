@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+# 個人の Claude Code の設定はリポジトリに入れない
+.claude/settings.local.json

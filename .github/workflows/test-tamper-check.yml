@@ -1,0 +1,77 @@
+# テストの書き換えを検知する。
+# PR で、テストの既存の行が変わった（変更・削除された）のに、
+# PR 本文に「## テストを変えた理由」が書かれていなければ赤にする。テストを足すだけなら緑。
+name: test-tamper-check
+
+# 見張るテストの場所。空白で区切って複数書ける（git のパス指定の書き方）。
+# 他の言語ではここだけを変える。例："src/**/*.test.ts" や "src/test/"
+env:
+  TEST_PATHS: "tests/"
+
+on:
+  pull_request:
+    # edited：PR 本文を直したときにも判定し直す
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  test-tamper-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: テストの既存の行が変わっていないか確かめる
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # PR 本文は run に直接埋め込まず、環境変数で渡す（埋め込まれたスクリプトを実行させないため）
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          read -r -a paths <<< "$TEST_PATHS"
+          if [[ ${#paths[@]} -eq 0 ]]; then
+            echo "::error::TEST_PATHS が空です。見張るテストの場所を書いてください。"
+            exit 1
+          fi
+          echo "見張る場所：${paths[*]}"
+
+          # PR の分岐点から head までの差分で、テストの削除行（既存の行の変更・削除）を数える
+          found=""
+          while IFS=$'\t' read -r added deleted file; do
+            [[ "$deleted" == "0" ]] && continue
+            found+="  - ${file}（削除行 ${deleted}）"$'\n'
+          done < <(git diff --numstat --find-renames "$BASE_SHA...$HEAD_SHA" -- "${paths[@]}")
+
+          if [[ -z "$found" ]]; then
+            echo "テストの既存の行は変わっていません（変更なし、または追加だけ）。"
+            exit 0
+          fi
+
+          echo "テストの既存の行が変わっています："
+          printf '%s' "$found"
+
+          # PR 本文に「## テストを変えた理由」の見出しがあり、その下に本文があるか
+          # （HTML コメントと空行だけなら、本文なしとみなす）
+          if printf '%s' "${PR_BODY:-}" | python3 -c '
+          import re, sys
+          body = sys.stdin.read().replace("\r\n", "\n")
+          body = re.sub(r"<!--.*?-->", "", body, flags=re.S)
+          m = re.search(r"^## テストを変えた理由[ \t]*$(.*?)(?=^#{1,2} |\Z)", body, flags=re.M | re.S)
+          sys.exit(0 if m and m.group(1).strip() else 1)
+          '; then
+            echo "PR 本文に「## テストを変えた理由」があるので通します。レビューでその理由を確かめてください。"
+            exit 0
+          fi
+
+          echo "::error title=test-tamper-check::テストの既存の行が変わっていますが、PR 本文に理由がありません。"
+          echo "通す方法：PR 本文に次の見出しを足し、その下に理由を書いて保存してください。保存すると自動で判定し直します。"
+          echo ""
+          echo "  ## テストを変えた理由"
+          echo "  （なぜ既存のテストを変える必要があったか）"
+          exit 1
