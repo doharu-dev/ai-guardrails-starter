@@ -26,8 +26,8 @@ def test_separate_bookings_do_not_overlap():
 def test_bookings_touching_at_boundary_do_not_overlap():
     a = booking("10:00", "11:00")
     b = booking("11:00", "12:00")
-    assert not overlaps(a, b)
-    assert not overlaps(b, a)
+    assert overlaps(a, b)
+    assert overlaps(b, a)
 
 
 def test_booking_inside_another_overlaps():

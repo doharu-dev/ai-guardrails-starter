@@ -15,7 +15,7 @@ class Booking:
 def overlaps(a: Booking, b: Booking) -> bool:
     """2つの予約が重なるかを返す。
 
-    終了を含まないので、10:00〜11:00 と 11:00〜12:00 のように
-    片方の終了ともう片方の開始がちょうど同じなら、重ならない。
+    10:00〜11:00 と 11:00〜12:00 のように
+    片方の終了ともう片方の開始がちょうど同じときも、重なるとみなす。
     """
-    return a.start < b.end and b.start < a.end
+    return a.start <= b.end and b.start <= a.end
