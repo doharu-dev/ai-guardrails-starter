@@ -54,7 +54,7 @@ hook は `bash` と `python3`（hook に渡される JSON を読むためだけ�
 
 ```text
 テストを無効にする書き方が足されています：
-  - tests/test_booking.py:9  @pytest.mark.skip(reason='later')
+  - tests/test_booking.py:27  @pytest.mark.skip(reason="あとで直す")
 ```
 
 緑になっても、理由が正しいかどうかを決めるのは人です。この仕組みは「黙ってテストを書き換える」ことを止め、理由をレビューの場に出させるためのものです。
