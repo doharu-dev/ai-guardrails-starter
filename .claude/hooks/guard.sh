@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Claude Code の PreToolUse hook。危ない操作を実行前に止める。
 #
-# 止める操作は次の3つだけ。
+# 止める操作は次の4つだけ。
 #   1. 再帰的な削除（rm -r・rm -rf など）                  … Bash
 #   2. main への直接の push                                 … Bash
 #   3. .claude/hooks/ 配下の書き換え（hook 自身を外させない）… Edit・Write・Bash
+#   4. .claude/settings.json の書き換え（hook の登録を外させない）… Edit・Write・Bash
+#      個人の設定 .claude/settings.local.json は止めない。
+#
+# この hook が崩れていないかは、tests/guardrails/ のテストが CI（guardrails）で確かめる。
 #
 # 受け取り方：標準入力に JSON（tool_name・tool_input・cwd など）が来る。
 # 止め方    ：理由と代わりの行動を標準エラーに書き、終了コード 2 で終わる。
@@ -12,11 +16,34 @@
 # 通す      ：何も出さずに終了コード 0 で終わる。
 #
 # 前提：bash と python3（JSON を読むためだけに使う）。
+#
+# 書き方の注意：変数のすぐ後ろに全角の文字を続けるときは ${変数} と囲む。
+# macOS の bash 3.2 は、日本語のロケールで "$x（" を変数 x（ と読み違えて落ちる。
+# （tests/guardrails/ のテストがこの書き方を確かめる）
 
 set -u
 
+# hook 自身がエラーで落ちたとき（終了コードが 0 でも 2 でもないとき）は、止める側に倒す。
+# 落ちたまま終わると Claude Code は操作を通してしまうため。
+on_exit() {
+  local code=$?
+  if [[ $code != 0 && $code != 2 ]]; then
+    {
+      echo "[guard.sh] hook の中でエラーが起きたため（終了コード ${code}）、念のためこの操作を止めました。"
+      echo "このメッセージとエラーの内容を人に報告してください。"
+    } >&2
+    exit 2
+  fi
+}
+trap on_exit EXIT
+
 PROTECTED_BRANCH="main"
 HOOKS_DIR=".claude/hooks"
+SETTINGS_FILE=".claude/settings.json"
+
+HOOKS_REASON="$HOOKS_DIR/ は AI を止める仕組みそのもので、AI が書き換えると止める意味がなくなります。"
+SETTINGS_REASON="$SETTINGS_FILE には hook の登録があり、AI が書き換えると hook が外れて止める仕組みが効かなくなります。"
+ASK_HUMAN="変えたい内容と理由を人に伝え、人に書き換えてもらってください。"
 
 deny() {
   # $1: 止めた理由 / $2: 代わりにしてほしいこと
@@ -51,12 +78,14 @@ print(value if isinstance(value, str) else "", end="")
 tool_name="$(field tool_name)" || deny "hook に渡された JSON を読めませんでした。" \
   "操作の内容を人に伝え、人に実行してもらってください。"
 
-# ---- Edit・Write：.claude/hooks/ 配下の書き換え ---------------------------
+# ---- Edit・Write：.claude/hooks/ 配下と .claude/settings.json の書き換え ------
 if [[ "$tool_name" == "Edit" || "$tool_name" == "Write" ]]; then
   file_path="$(field tool_input.file_path)"
   if [[ "$file_path" == *"/$HOOKS_DIR/"* || "$file_path" == "$HOOKS_DIR/"* ]]; then
-    deny "$HOOKS_DIR/ は AI を止める仕組みそのもので、AI が書き換えると止める意味がなくなります。（対象：$file_path）" \
-      "変えたい内容と理由を人に伝え、人に書き換えてもらってください。"
+    deny "${HOOKS_REASON}（対象：${file_path}）" "$ASK_HUMAN"
+  fi
+  if [[ "$file_path" == *"/$SETTINGS_FILE" || "$file_path" == "$SETTINGS_FILE" ]]; then
+    deny "${SETTINGS_REASON}（対象：${file_path}）" "$ASK_HUMAN"
   fi
   exit 0
 fi
@@ -141,10 +170,11 @@ check_push_to_main() {
   done
 }
 
-check_hooks_rewrite() {
-  local segment="$1"
-  shift
-  [[ "$segment" == *"$HOOKS_DIR"* ]] || return 0
+# 守る場所（$1）を書き換えるコマンドなら止める。$2 は止めた理由、$3 は区切った1つ分のコマンド
+check_protected_rewrite() {
+  local target="$1" reason="$2" segment="$3"
+  shift 3
+  [[ "$segment" == *"$target"* ]] || return 0
   local -a w=("$@")
   local i
   i="$(first_word_index "$@")"
@@ -154,17 +184,17 @@ check_hooks_rewrite() {
   local rewrite=""
   case "$cmd" in
     rm | mv | unlink | truncate | chmod | chown | touch | tee) rewrite="yes" ;;
-    cp | ln | install | rsync) [[ "$last" == *"$HOOKS_DIR"* ]] && rewrite="yes" ;;
+    cp | ln | install | rsync) [[ "$last" == *"$target"* ]] && rewrite="yes" ;;
     sed | perl) [[ "$segment" =~ [[:space:]]-[a-zA-Z]*i ]] && rewrite="yes" ;;
     git) [[ "${w[i + 1]:-}" =~ ^(rm|mv|checkout|restore|apply)$ ]] && rewrite="yes" ;;
   esac
-  # リダイレクト（> や >>）の書き込み先が .claude/hooks/ 配下
-  if [[ "$segment" =~ \>[[:space:]]*[^[:space:]]*\.claude/hooks ]]; then
+  # リダイレクト（> や >>）の書き込み先が守る場所
+  local redirect_re=">[[:space:]]*[^[:space:]]*${target//./\\.}"
+  if [[ "$segment" =~ $redirect_re ]]; then
     rewrite="yes"
   fi
   if [[ -n "$rewrite" ]]; then
-    deny "$HOOKS_DIR/ は AI を止める仕組みそのもので、AI が書き換えると止める意味がなくなります。" \
-      "変えたい内容と理由を人に伝え、人に書き換えてもらってください。"
+    deny "$reason" "$ASK_HUMAN"
   fi
 }
 
@@ -173,7 +203,8 @@ while IFS= read -r segment; do
   ((${#words[@]} > 0)) || continue
   check_recursive_rm "${words[@]}"
   check_push_to_main "${words[@]}"
-  check_hooks_rewrite "$segment" "${words[@]}"
+  check_protected_rewrite "$HOOKS_DIR" "$HOOKS_REASON" "$segment" "${words[@]}"
+  check_protected_rewrite "$SETTINGS_FILE" "$SETTINGS_REASON" "$segment" "${words[@]}"
 done < <(printf '%s\n' "$command_text" | tr ';&|()`' '\n\n\n\n\n\n')
 
 exit 0

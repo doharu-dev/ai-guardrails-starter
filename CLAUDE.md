@@ -19,6 +19,7 @@ pytest
 |---|---|
 | `.claude/rules/` | 守ってほしい決めごと。1ファイル1テーマ。決めごとはここにだけ書く |
 | `.claude/settings.json`・`.claude/hooks/guard.sh` | 危ない操作を実行前に止める hook |
-| `.github/workflows/` | `ci`（整形・lint・テスト）と `test-tamper-check`（テストの書き換えの検知） |
+| `.github/workflows/` | `ci`（整形・lint・テスト）・`guardrails`（仕組みを守るテスト）・`test-tamper-check`（テストの書き換えの検知） |
+| `tests/guardrails/` | hook・その登録・テストの書き換えの検知が崩れていないかを確かめるテスト |
 | `src/`・`tests/` | 題材のコードとテスト |
 | `docs/demo.md` | 勉強会のデモの段取り |
