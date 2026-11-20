@@ -1,0 +1,32 @@
+# 仕組みを守るテスト（tests/guardrails/）を流す。
+# hook の登録が外されたり、hook の振る舞いが緩められたりしたら赤にする。
+# プロジェクトの言語と切り離すため、このジョブの中で Python と pytest だけを入れる
+# （雛形を Python 以外のプロジェクトに入れても、そのまま動く）。
+name: guardrails
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      # 公開から30日以上経った版に固定する（requirements-dev.txt とは別に持つ）
+      - name: pytest を入れる
+        run: python -m pip install pytest==9.1.1
+
+      # tests/guardrails/pytest.ini だけを読む（プロジェクト側の pytest の設定に左右されない）
+      - name: 仕組みを守るテスト（pytest）
+        run: python -m pytest -c tests/guardrails/pytest.ini tests/guardrails

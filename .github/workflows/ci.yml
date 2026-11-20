@@ -29,5 +29,6 @@ jobs:
       - name: lint（ruff check）
         run: ruff check .
 
+      # 仕組みを守るテスト（tests/guardrails/）は guardrails のジョブが流すので、ここでは外す
       - name: テスト（pytest）
-        run: pytest
+        run: pytest --ignore=tests/guardrails

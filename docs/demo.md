@@ -5,17 +5,17 @@
 ## 事前の準備
 
 - リポジトリを**公開**に切り替えておく（無料プランの個人リポジトリでは、ブランチ保護が公開リポジトリだけで使えるため）。
-- ブランチ保護で `main` に「PR を必須」「`ci` と `test-tamper-check` を必須のチェック」を設定しておく（README の「入れ方」の4）。
+- ブランチ保護で `main` に「PR を必須」「`ci`・`test-tamper-check`・`guardrails` を必須のチェック」を設定しておく（README の「入れ方」の4）。
 - ブランチ `demo/test-rewritten` と `demo/bug-only` を GitHub に push しておく。
 - このリポジトリのフォルダで Claude Code を起動し直しておく（hook を確実に読み込ませるため）。
 
 使うブランチ：
 
-| ブランチ | 中身 | pytest | test-tamper-check |
-|---|---|---|---|
-| `main` | 正しい実装 | 緑 | — |
-| `demo/test-rewritten` | `overlaps` の比較を `<=` にし、境界で接する予約を「重なる」とした。テストの期待値もそれに合わせて書き換えた | 緑 | 赤 |
-| `demo/bug-only` | `<=` にしただけ。テストはそのまま | 赤 | — |
+| ブランチ | 中身 | pytest | guardrails | test-tamper-check |
+|---|---|---|---|---|
+| `main` | 正しい実装 | 緑 | 緑 | — |
+| `demo/test-rewritten` | `overlaps` の比較を `<=` にし、境界で接する予約を「重なる」とした。テストの期待値もそれに合わせて書き換えた | 緑 | 緑 | 赤 |
+| `demo/bug-only` | `<=` にしただけ。テストはそのまま | 赤 | 緑 | — |
 
 `demo/bug-only` は、その場で AI に「テストを通して」と頼み、AI がテストではなく `src/` を直すか（rules の `tests-are-not-edited.md`）を見せるときに使います。
 
@@ -41,9 +41,13 @@ gh pr create --base main --head demo/test-rewritten \
   --body "境界で接する予約の判定を変えました。"
 ```
 
+PR の画面に出るチェックは4つです（`ci` が push と pull_request の2つ、`guardrails`、`test-tamper-check`）。
+`guardrails` を足す前は3つでした。
+
 見せる箇所：
 
 - `ci` は**緑**（テストの期待値も変えたので、テストは通ってしまう）。
+- `guardrails` も**緑**（hook や検知の仕組みそのものは崩れていない）。
 - `test-tamper-check` は**赤**。ログに `tests/test_booking.py（削除行 2）` と、通す方法が出ている。
 - 「テストが緑」だけでは、正しいとは言えないこと。
 
